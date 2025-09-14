@@ -42,7 +42,18 @@ import com.jpexs.decompiler.flash.abc.avm2.parser.script.ActionScript3Parser;
 import com.jpexs.decompiler.flash.abc.types.Float4;
 import com.jpexs.decompiler.flash.abc.types.MethodBody;
 import com.jpexs.decompiler.flash.abc.types.traits.Trait;
+import com.jpexs.decompiler.flash.abc.types.traits.TraitMethodGetterSetter;
 import com.jpexs.decompiler.flash.abc.usages.simple.ABCCleaner;
+import com.jpexs.decompiler.flash.abc.types.ClassInfo;
+import com.jpexs.decompiler.flash.abc.types.InstanceInfo;
+import com.jpexs.decompiler.flash.abc.types.MetadataInfo;
+import com.jpexs.decompiler.flash.abc.types.MethodBody;
+import com.jpexs.decompiler.flash.abc.types.MethodInfo;
+import com.jpexs.decompiler.flash.abc.types.Multiname;
+import com.jpexs.decompiler.flash.abc.types.Namespace;
+import com.jpexs.decompiler.flash.abc.types.NamespaceSet;
+import com.jpexs.decompiler.flash.abc.types.ScriptInfo;
+import com.jpexs.decompiler.flash.abc.types.traits.Trait;
 import com.jpexs.decompiler.flash.action.parser.ActionParseException;
 import com.jpexs.decompiler.flash.action.parser.pcode.ASMParser;
 import com.jpexs.decompiler.flash.action.parser.script.ActionScript2Parser;
@@ -677,6 +688,9 @@ public class CommandLineArgumentParser {
             parseProxy(args);
         } else if (command.equals("export")) {
             parseExport(selectionClasses, selection, selectionIds, args, handler, traceLevel, format, zoom, charset, exportEmbed, resampleWav, transparentBackground, urlResolver);
+            System.exit(0);
+        } else if (command.equals("exportabc")) {
+			parseExportABC(args, charset);
             System.exit(0);
         } else if (command.equals("compress")) {
             parseCompress(args);
@@ -2355,6 +2369,56 @@ public class CommandLineArgumentParser {
         System.exit(exportOK ? 0 : 1);
     }
 
+	private static void parseExportABC(Stack<String> args, String charset) {
+		if (args.size() < 3) {
+            badArguments("exportABC");
+        }
+
+		File inFile = new File(args.pop());
+		File outFile = new File(args.pop());
+		String classpath = args.pop();
+
+		try {
+			try (StdInAwareFileInputStream is = new StdInAwareFileInputStream(inFile)) {
+				SWF swf = new SWF(is, Configuration.parallelSpeedUp.get(), charset);
+
+				List<ScriptPack> packs = swf.getAS3Packs();
+
+				for (ScriptPack entry : packs) {
+					String path = entry.getClassPath().toString();
+					if (path.equals(classpath)) {
+						ScriptPack pack = entry;
+						ABC abc = pack.abc;
+	
+						List<DottedChain> fullyQualifiedNames = new ArrayList<>();
+
+						List<InstanceInfo> instanceInfos = abc.instance_info;
+						for (InstanceInfo info : instanceInfos) {
+							// System.out.println(info.instance_traits.toString(abc, new ArrayList<>()));
+							for (Trait trait : info.instance_traits.traits) {
+								if (trait instanceof TraitMethodGetterSetter) {
+									int method_info_idx = ((TraitMethodGetterSetter)trait).method_info;
+									MethodInfo methodInfo = abc.method_info.get(method_info_idx);
+									MethodBody body = abc.findBody(methodInfo);
+
+									System.out.print(abc.constants.getMultiname(trait.name_index).toString(abc.constants, fullyQualifiedNames));
+									System.out.print("\t");
+									System.out.print(method_info_idx);
+									System.out.print("\t");
+									System.out.print(abc.bodies.indexOf(body));
+									System.out.print("\n");
+								}
+							}
+						}
+					}
+				}
+			}
+		} catch (IOException | InterruptedException e) {
+			System.err.println("I/O error during reading");
+			System.exit(2);
+		}
+	}
+
     private static void exportFla(boolean compressed, String outDir, File inFile, SWF swf, boolean multipleExportTypes, Map<String, String> formats, AbortRetryIgnoreHandler handler) throws IOException, InterruptedException {
         String exportFormat = compressed ? "fla" : "xfl";
         String format = formats.get(exportFormat);
@@ -3271,6 +3335,7 @@ public class CommandLineArgumentParser {
                                             badArguments("replace");
                                         }
 
+										
                                         int bodyIndex = Integer.parseInt(args.pop());
                                         ABC abc = pack.abc;
                                         List<Trait> resultTraits = abc.getMethodIndexing().findMethodTraits(pack, bodyIndex);
